@@ -6,6 +6,27 @@ from collections import defaultdict
 from log import log_temperature
 from secrets import device_mapping
 
+
+# helper for timeouts
+# https://stackoverflow.com/a/601168
+import signal
+from contextlib import contextmanager
+
+class TimeoutException(Exception):
+    pass
+
+@contextmanager
+def time_limit(seconds):
+    def signal_handler(signum, frame):
+        raise TimeoutException("Timed out!")
+    signal.signal(signal.SIGALRM, signal_handler)
+    signal.alarm(seconds)
+    try:
+        yield
+    finally:
+        signal.alarm(0)
+
+
 last_processed = defaultdict(str)
 
 
@@ -35,13 +56,17 @@ def process_entry(entry):
 
 def main():
     proc = subprocess.Popen(['rtl_433', '-F', 'json', '-R', '40'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    # time.sleep(10)
+    time.sleep(10) # let rtl_433 initialize
     while True:
         try:
             #print "waiting to read input"
-            input_ = proc.stdout.readline()
+            with time_limit(30):
+                #print "trying to read with limit"
+                input_ = proc.stdout.readline()
+                #print "input_ = ", input_
             # print "poll: ", proc.poll()
             if proc.poll():
+                print "subprocess has returned"
                 break
                 #print "stderr: "
                 #print proc.stderr.read()
@@ -56,6 +81,9 @@ def main():
             # print "bad json value: ", input_, "\nignoring"
             # continue
         except KeyboardInterrupt:
+            break
+        except TimeoutException:
+            print "timout exception reached, exiting"
             break
         except Exception:
             # any exception, we want to kill the process
